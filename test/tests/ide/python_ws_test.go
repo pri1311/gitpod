@@ -46,7 +46,7 @@ func TestPythonExtWorkspace(t *testing.T) {
 			}
 			defer rsa.Close()
 			integration.DeferCloser(t, closer)
-			
+
 			var resp agent.ExecResponse
 			err = rsa.Call("WorkspaceAgent.Exec", &agent.ExecRequest{
 				Dir:     "/workspace/python-test-workspace",
