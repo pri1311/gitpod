@@ -34,19 +34,19 @@ func TestPythonExtWorkspace(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer stopWs(true)
-
+			t.Log(">>>>>>>>>>>>>>>>>> before wait for workspace")
 			_, err = integration.WaitForWorkspaceStart(ctx, nfo.LatestInstance.ID, api)
 			if err != nil {
 				t.Fatal(err)
 			}
-
+			t.Log(">>>>>>>>>>>>>>>>>> before rpc into workspace")
 			rsa, closer, err := integration.Instrument(integration.ComponentWorkspace, "workspace", cfg.Namespace(), cfg.Client(), integration.WithInstanceID(nfo.LatestInstance.ID))
 			if err != nil {
 				t.Fatal(err)
 			}
 			defer rsa.Close()
 			integration.DeferCloser(t, closer)
-
+			t.Log(">>>>>>>>>>>>>>>>>> before exec")
 			var resp agent.ExecResponse
 			err = rsa.Call("WorkspaceAgent.Exec", &agent.ExecRequest{
 				Dir:     "/workspace/python-test-workspace",
@@ -59,10 +59,11 @@ func TestPythonExtWorkspace(t *testing.T) {
 					"--extensionTestsPath=./out/test/suite",
 				},
 			}, &resp)
+			t.Log(">>>>>>>>>>>>>>>>>> after exec")
 			if err != nil {
 				t.Fatal(err)
 			}
-
+			t.Log(">>>>>>>>>>>>>>>>>> no exec errors")
 			// if err != nil {
 			// 	t.Fatal(err)
 			// }
