@@ -59,8 +59,12 @@ export class TracingManager {
             serviceName
         }
         const t = initTracerFromEnv(config, {
-            logger: console
+            logger: console,
+            tags: {
+                'service.version': process.env.VERSION
+            }
         });
+
         if (opts) {
             if (opts.perOpSampling) {
                 (t as any)._sampler = new PerOperationSampler((t as any)._sampler, opts.perOpSampling);
