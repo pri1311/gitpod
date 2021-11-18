@@ -6,6 +6,7 @@ package integration
 
 import (
 	"archive/tar"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -22,18 +23,50 @@ import (
 	"strings"
 	"time"
 
-	"golang.org/x/sync/errgroup"
 	"golang.org/x/xerrors"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/runtime/serializer"
 	"k8s.io/apimachinery/pkg/util/wait"
+	"k8s.io/cli-runtime/pkg/genericclioptions"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
+	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/remotecommand"
+	kubectlcp "k8s.io/kubectl/pkg/cmd/cp"
 	"sigs.k8s.io/e2e-framework/klient"
 
 	"github.com/gitpod-io/gitpod/test/pkg/integration/common"
 )
+
+type PodExec struct {
+	RestConfig *rest.Config
+	*kubernetes.Clientset
+}
+
+func NewPodExec(config rest.Config, clientset *kubernetes.Clientset) *PodExec {
+	config.APIPath = "/api"                                   // Make sure we target /api and not just /
+	config.GroupVersion = &schema.GroupVersion{Version: "v1"} // this targets the core api groups so the url path will be /api/v1
+	config.NegotiatedSerializer = serializer.WithoutConversionCodecFactory{CodecFactory: scheme.Codecs}
+	return &PodExec{
+		RestConfig: &config,
+		Clientset:  clientset,
+	}
+}
+
+func (p *PodExec) PodCopyFile(src string, dst string, containername string) (*bytes.Buffer, *bytes.Buffer, *bytes.Buffer, error) {
+	ioStreams, in, out, errOut := genericclioptions.NewTestIOStreams()
+	copyOptions := kubectlcp.NewCopyOptions(ioStreams)
+	copyOptions.Clientset = p.Clientset
+	copyOptions.ClientConfig = p.RestConfig
+	copyOptions.Container = containername
+	err := copyOptions.Run([]string{src, dst})
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("Could not run copy operation: %v", err)
+	}
+	return in, out, errOut, nil
+}
 
 // InstrumentOption configures an Instrument call
 type InstrumentOption func(*instrumentOptions) error
@@ -112,7 +145,14 @@ func Instrument(component ComponentType, agentName string, namespace string, cli
 		return nil, closer, err
 	}
 	tgtFN := filepath.Base(agentLoc)
-	err = uploadAgent(agentLoc, tgtFN, podName, containerName, namespace, client)
+	// err = uploadAgent(agentLoc, tgtFN, podName, containerName, namespace, client)
+
+	clientConfig, err := kubernetes.NewForConfig(client.RESTConfig())
+	if err != nil {
+		return nil, closer, err
+	}
+	podExec := NewPodExec(*client.RESTConfig(), clientConfig)
+	_, _, _, err = podExec.PodCopyFile(agentLoc, fmt.Sprintf("%s/%s:/tmp/gitpodTestAgent", namespace, podName), containerName)
 	if err != nil {
 		return nil, closer, err
 	}
