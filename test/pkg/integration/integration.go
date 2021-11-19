@@ -5,14 +5,11 @@
 package integration
 
 import (
-	"archive/tar"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net"
-	"net/http"
 	"net/rpc"
 	"os"
 	"os/exec"
@@ -23,7 +20,6 @@ import (
 	"strings"
 	"time"
 
-	"golang.org/x/sync/errgroup"
 	"golang.org/x/xerrors"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -34,7 +30,6 @@ import (
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
-	"k8s.io/client-go/tools/remotecommand"
 	kubectlcp "k8s.io/kubectl/pkg/cmd/cp"
 	"sigs.k8s.io/e2e-framework/klient"
 
@@ -272,81 +267,6 @@ func executeAgent(cmd []string, pod, container string, namespace string, client 
 	}
 
 	return nil
-}
-
-func uploadAgent(srcFN, tgtFN string, pod, container string, namespace string, client klient.Client) (err error) {
-	clientset, err := kubernetes.NewForConfig(client.RESTConfig())
-	if err != nil {
-		return xerrors.Errorf("cannot create Kubernetes client: %w", err)
-	}
-
-	stat, err := os.Stat(srcFN)
-	if err != nil {
-		return xerrors.Errorf("cannot upload agent: %w", err)
-	}
-	srcIn, err := os.Open(srcFN)
-	if err != nil {
-		return xerrors.Errorf("cannot upload agent: %w", err)
-	}
-	defer srcIn.Close()
-
-	tarIn, tarOut := io.Pipe()
-
-	req := clientset.CoreV1().RESTClient().Post().
-		Resource("pods").
-		Name(pod).
-		Namespace(namespace).
-		SubResource("exec")
-
-	req.VersionedParams(&corev1.PodExecOptions{
-		Container: container,
-		Command:   []string{"tar", "-xmf", "-", "-C", "/tmp"},
-		Stdin:     true,
-		Stdout:    false,
-		Stderr:    false,
-		TTY:       false,
-	}, scheme.ParameterCodec)
-
-	exec, err := remotecommand.NewSPDYExecutor(client.RESTConfig(), http.MethodPost, req.URL())
-	if err != nil {
-		return xerrors.Errorf("cannot upload agent: %w", err)
-	}
-
-	var eg errgroup.Group
-	eg.Go(func() error {
-		err := exec.Stream(remotecommand.StreamOptions{
-			Stdin: tarIn,
-			Tty:   false,
-		})
-		if err != nil {
-			return xerrors.Errorf("cannot upload agent: %w", err)
-		}
-		return nil
-	})
-	eg.Go(func() error {
-		tarw := tar.NewWriter(tarOut)
-		err = tarw.WriteHeader(&tar.Header{
-			Typeflag: tar.TypeReg,
-			Name:     tgtFN,
-			Size:     stat.Size(),
-			Mode:     0777,
-		})
-		if err != nil {
-			return xerrors.Errorf("cannot upload agent: %w", err)
-		}
-
-		_, err = io.Copy(tarw, srcIn)
-		if err != nil {
-			return xerrors.Errorf("cannot upload agent: %w", err)
-		}
-
-		tarw.Close()
-		tarOut.Close()
-
-		return nil
-	})
-
-	return eg.Wait()
 }
 
 func buildAgent(name string) (loc string, err error) {
