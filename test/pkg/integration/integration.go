@@ -31,6 +31,7 @@ import (
 	"k8s.io/client-go/kubernetes/scheme"
 	"k8s.io/client-go/rest"
 	kubectlcp "k8s.io/kubectl/pkg/cmd/cp"
+	kubectlexec "k8s.io/kubectl/pkg/cmd/exec"
 	"sigs.k8s.io/e2e-framework/klient"
 
 	"github.com/gitpod-io/gitpod/test/pkg/integration/common"
@@ -60,6 +61,28 @@ func (p *PodExec) PodCopyFile(src string, dst string, containername string) (*by
 	err := copyOptions.Run([]string{src, dst})
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("Could not run copy operation: %v", err)
+	}
+	return in, out, errOut, nil
+}
+
+func (p *PodExec) ExecCmd(command []string, podname string, namespace string, containername string) (*bytes.Buffer, *bytes.Buffer, *bytes.Buffer, error) {
+	ioStreams, in, out, errOut := genericclioptions.NewTestIOStreams()
+	execOptions := &kubectlexec.ExecOptions{
+		StreamOptions: kubectlexec.StreamOptions{
+			IOStreams:     ioStreams,
+			Namespace:     namespace,
+			PodName:       podname,
+			ContainerName: containername,
+		},
+
+		Command:   command,
+		Executor:  &kubectlexec.DefaultRemoteExecutor{},
+		PodClient: p.Clientset.CoreV1(),
+		Config:    p.RestConfig,
+	}
+	err := execOptions.Run()
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("Could not run exec operation: %v", err)
 	}
 	return in, out, errOut, nil
 }
@@ -141,14 +164,13 @@ func Instrument(component ComponentType, agentName string, namespace string, cli
 		return nil, closer, err
 	}
 	tgtFN := filepath.Base(agentLoc)
-	// err = uploadAgent(agentLoc, tgtFN, podName, containerName, namespace, client)
 
 	clientConfig, err := kubernetes.NewForConfig(client.RESTConfig())
 	if err != nil {
 		return nil, closer, err
 	}
 	podExec := NewPodExec(*client.RESTConfig(), clientConfig)
-	_, _, _, err = podExec.PodCopyFile(agentLoc, fmt.Sprintf("%s/%s:/tmp/gitpodTestAgent", namespace, podName), containerName)
+	_, _, _, err = podExec.PodCopyFile(agentLoc, fmt.Sprintf("%s/%s:/home/gitpod/%s", namespace, podName, tgtFN), containerName)
 	if err != nil {
 		return nil, closer, err
 	}
@@ -158,7 +180,7 @@ func Instrument(component ComponentType, agentName string, namespace string, cli
 		return nil, closer, err
 	}
 
-	cmd := []string{filepath.Join("/tmp", tgtFN), "-rpc-port", strconv.Itoa(localAgentPort)}
+	cmd := []string{filepath.Join("/home/gitpod/", tgtFN), "-rpc-port", strconv.Itoa(localAgentPort)}
 	if options.WorkspacekitLift {
 		cmd = append([]string{"/.supervisor/workspacekit", "lift"}, cmd...)
 	}

@@ -64,6 +64,8 @@ func TestPythonExtWorkspace(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Log(">>>>>>>>>>>>>>>>>> no exec errors")
+			t.Log(">>>>>>>>>>>>>>>>>> stdout", resp.Stdout)
+			t.Log(">>>>>>>>>>>>>>>>>> stderr", resp.Stderr)
 			// if err != nil {
 			// 	t.Fatal(err)
 			// }
