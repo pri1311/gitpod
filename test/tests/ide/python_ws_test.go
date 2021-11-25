@@ -40,7 +40,7 @@ func TestPythonExtWorkspace(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Log(">>>>>>>>>>>>>>>>>> before rpc into workspace")
-			rsa, closer, err := integration.Instrument(integration.ComponentWorkspace, "workspace", cfg.Namespace(), cfg.Client(), integration.WithInstanceID(nfo.LatestInstance.ID))
+			rsa, closer, err := integration.Instrument(integration.ComponentWorkspace, "workspace", cfg.Namespace(), cfg.Client(), integration.WithInstanceID(nfo.LatestInstance.ID), integration.WithWorkspacekitLift(true))
 			if err != nil {
 				t.Fatal(err)
 			}
