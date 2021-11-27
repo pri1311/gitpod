@@ -15,7 +15,9 @@ import { getGitpodService, gitpodHostUrl } from "../service/service";
 import { TeamsContext, getCurrentTeam } from "../teams/teams-context";
 import { PrebuildInstanceStatus } from "./Prebuilds";
 import { shortCommitMessage } from "./render-utils";
+import { Link } from "react-router-dom";
 
+// eslint-disable-next-line import/no-anonymous-default-export
 export default function () {
     const history = useHistory();
     const location = useLocation();
@@ -77,6 +79,12 @@ export default function () {
             <div className="my-auto">
                 <p className="text-gray-500 dark:text-gray-50">{shortCommitMessage(prebuild.info.changeTitle)}</p>
             </div>
+            {!!prebuild.info.basedOnPrebuildId && <>
+                <p className="mx-2 my-auto">·</p>
+                <div className="my-auto">
+                    <p className="text-gray-500 dark:text-gray-50">Incremental Prebuild (<Link className="gp-link" to={`./${prebuild.info.basedOnPrebuildId}`}>base</Link>)</p>
+                </div>
+            </>}
         </div>)
     };
 

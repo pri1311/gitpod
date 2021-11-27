@@ -53,6 +53,7 @@ import { LocalMessageBroker } from "../messaging/local-message-broker";
 import { CachingBlobServiceClientProvider } from '@gitpod/content-service/lib/sugar';
 import { IDEOptions } from '@gitpod/gitpod-protocol/lib/ide-protocol';
 import { IDEConfigService } from '../ide-config';
+import { ProjectSettings } from '@gitpod/gitpod-protocol/src/teams-projects-protocol';
 
 export type GitpodServerWithTracing = InterfaceWithTraceContext<GitpodServer>;
 
@@ -1598,6 +1599,12 @@ export class GitpodServerImpl implements GitpodServerWithTracing, Disposable {
             }
             throw error;
         }
+    }
+
+    public async updateProjectSettings(ctx: TraceContext, projectId: string, partialSettings: Partial<ProjectSettings>): Promise<void> {
+        const user = this.checkUser("updateProjectSettings");
+        await this.guardProjectOperation(user, projectId, "update");
+        await this.projectsService.updateProjectSettings(projectId, partialSettings);
     }
 
     public async getContentBlobUploadUrl(ctx: TraceContext, name: string): Promise<string> {

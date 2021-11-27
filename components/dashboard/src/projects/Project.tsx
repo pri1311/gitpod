@@ -19,6 +19,7 @@ import NoAccess from "../icons/NoAccess.svg";
 import { ErrorCodes } from "@gitpod/gitpod-protocol/lib/messaging/error";
 import { openAuthorizeWindow } from "../provider-utils";
 
+// eslint-disable-next-line import/no-anonymous-default-export
 export default function () {
     const location = useLocation();
 
