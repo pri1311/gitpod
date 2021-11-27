@@ -6,6 +6,7 @@ package ide
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"testing"
 	"time"
@@ -16,6 +17,24 @@ import (
 	agent "github.com/gitpod-io/gitpod/test/pkg/agent/workspace/api"
 	"github.com/gitpod-io/gitpod/test/pkg/integration"
 )
+
+func poolTask(task func() (bool, error)) (bool, error) {
+	timeout := time.After(5 * time.Minute)
+	ticker := time.Tick(20 * time.Second)
+	for {
+		select {
+		case <-timeout:
+			return false, errors.New("timed out")
+		case <-ticker:
+			ok, err := task()
+			if err != nil {
+				return false, err
+			} else if ok {
+				return true, nil
+			}
+		}
+	}
+}
 
 func TestPythonExtWorkspace(t *testing.T) {
 	f := features.New("PythonExtensionWorkspace").
@@ -39,6 +58,12 @@ func TestPythonExtWorkspace(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
+
+			// _, err = api.GitpodSession(nfo.LatestInstance.ID, integration.WithGitpodUser(username))
+			// if err != nil {
+			// 	t.Fatal(err)
+			// }
+
 			t.Log(">>>>>>>>>>>>>>>>>> before rpc into workspace")
 			rsa, closer, err := integration.Instrument(integration.ComponentWorkspace, "workspace", cfg.Namespace(), cfg.Client(), integration.WithInstanceID(nfo.LatestInstance.ID), integration.WithWorkspacekitLift(true))
 			if err != nil {
@@ -47,6 +72,42 @@ func TestPythonExtWorkspace(t *testing.T) {
 			defer rsa.Close()
 			integration.DeferCloser(t, closer)
 			t.Log(">>>>>>>>>>>>>>>>>> before exec")
+
+			_, err = poolTask(func() (bool, error) {
+				var resp agent.ExecResponse
+				err = rsa.Call("WorkspaceAgent.Exec", &agent.ExecRequest{
+					Dir:     "/workspace/python-test-workspace",
+					Command: "test",
+					Args: []string{
+						"-f",
+						"__init_task_done__",
+					},
+				}, &resp)
+
+				return resp.ExitCode == 0, nil
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			// db, err := api.DB(integration.DBName("gitpod-sessions"))
+			// if err != nil {
+			// 	t.Fatal(err)
+			// }
+
+			// var rawCookieData string
+			// err = db.QueryRow("SELECT data FROM sessions LIMIT 1").Scan(&rawCookieData)
+			// if err != nil {
+			// 	t.Fatal(err)
+			// }
+
+			// var cookieData integration.CookieData
+			// err = json.Unmarshal([]byte(rawCookieData), &cookieData)
+			// if err != nil {
+			// 	t.Fatal(err)
+			// }
+
+
 			var resp agent.ExecResponse
 			err = rsa.Call("WorkspaceAgent.Exec", &agent.ExecRequest{
 				Dir:     "/workspace/python-test-workspace",

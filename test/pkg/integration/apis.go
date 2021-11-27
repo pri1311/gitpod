@@ -11,6 +11,7 @@ import (
 	"crypto/x509"
 	"database/sql"
 	"fmt"
+	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
@@ -229,6 +230,75 @@ func (c *ComponentAPI) GitpodServer(opts ...GitpodServerOpt) (gitpod.APIInterfac
 	return res, nil
 }
 
+func (c *ComponentAPI) GitpodSession(workspaceId string, opts ...GitpodServerOpt) (string, error) {
+	var options gitpodServerOpts
+	for _, o := range opts {
+		err := o(&options)
+		if err != nil {
+			return "", xerrors.Errorf("cannot access Gitpod server API: %q", err)
+		}
+	}
+
+	var res string
+	err := func() error {
+		tkn := c.serverStatus.Token[options.User]
+		if tkn == "" {
+			var err error
+			tkn, err = c.createGitpodToken(options.User)
+			if err != nil {
+				return err
+			}
+			c.serverStatus.Token[options.User] = tkn
+		}
+
+		var pods corev1.PodList
+		err := c.client.Resources(c.namespace).List(context.Background(), &pods, func(opts *metav1.ListOptions) {
+			opts.LabelSelector = "component=server"
+		})
+		if err != nil {
+			return err
+		}
+
+		config, err := GetServerConfig(c.namespace, c.client)
+		if err != nil {
+			return err
+		}
+
+		hostURL := config.HostURL
+		if hostURL == "" {
+			return xerrors.Errorf("server config: empty HostURL")
+		}
+
+		endpoint, err := url.Parse(hostURL)
+		if err != nil {
+			return err
+		}
+
+		origin := fmt.Sprintf("%s://%s/", "https", endpoint.Hostname())
+
+		reqHeader := http.Header{}
+		reqHeader.Set("Origin", origin)
+		reqHeader.Set("Authorization", "Bearer "+tkn)
+
+		httpresp, err := http.Get(hostURL + "/auth/workspace-cookie/" + workspaceId)
+		if err != nil {
+			return err
+		}
+
+		cookies := httpresp.Cookies()
+		for _, c := range cookies {
+			res = c.String()
+		}
+
+		return nil
+	}()
+	if err != nil {
+		return "", xerrors.Errorf("cannot access Gitpod server API: %q", err)
+	}
+
+	return res, nil
+}
+
 func (c *ComponentAPI) createGitpodToken(user string) (tkn string, err error) {
 	var row *sql.Row
 
@@ -400,9 +470,30 @@ func (c *ComponentAPI) BlobService() (csapi.BlobServiceClient, error) {
 	return c.contentServiceStatus.BlobServiceClient, nil
 }
 
+type dbOpts struct {
+	Database string
+}
+
+// DNOpt configures DB access
+type DBOpt func(*dbOpts)
+
+// DBName forces a particular database
+func DBName(name string) DBOpt {
+	return func(o *dbOpts) {
+		o.Database = name
+	}
+}
+
 // DB provides access to the Gitpod database.
 // Callers must never close the DB.
-func (c *ComponentAPI) DB() (*sql.DB, error) {
+func (c *ComponentAPI) DB(options ...DBOpt) (*sql.DB, error) {
+	opts := dbOpts{
+		Database: "gitpod",
+	}
+	for _, o := range options {
+		o(&opts)
+	}
+
 	config, err := c.findDBConfig()
 	if err != nil {
 		return nil, err
@@ -421,7 +512,7 @@ func (c *ComponentAPI) DB() (*sql.DB, error) {
 		c.appendCloser(func() error { cancel(); return nil })
 	}
 
-	db, err := sql.Open("mysql", fmt.Sprintf("gitpod:%s@tcp(%s:%d)/gitpod", config.Password, config.Host, config.Port))
+	db, err := sql.Open("mysql", fmt.Sprintf("gitpod:%s@tcp(%s:%d)/%s", config.Password, config.Host, config.Port, opts.Database))
 	if err != nil {
 		return nil, err
 	}

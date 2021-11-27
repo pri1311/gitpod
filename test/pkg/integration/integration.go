@@ -491,3 +491,18 @@ func isPodReady(s *corev1.PodStatus) bool {
 
 	return false
 }
+
+type CookieData struct {
+	Cookie struct {
+		OriginalMaxAge int    `json:"originalMaxAge"`
+		Expires        string `json:"expires"`
+		Secure         bool   `json:"secure"`
+		HttpOnly       bool   `json:"httpOnly"`
+		Domain         string `json:"domain"`
+		Path           string `json:"path"`
+		SameSite       string `json:"sameSite"`
+	} `json:"cookie"`
+	Passport struct {
+		User string `json:"user"`
+	} `json:"passport"`
+}
