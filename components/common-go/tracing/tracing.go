@@ -10,6 +10,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
+	"os"
 
 	"github.com/opentracing/opentracing-go"
 	tracelog "github.com/opentracing/opentracing-go/log"
@@ -43,6 +44,12 @@ func Init(serviceName string, opts ...Option) io.Closer {
 		log.WithError(err).Debug("cannot initialize Jaeger tracer from env")
 		return nil
 	}
+
+	version := os.Getenv("VERSION")
+	cfg.Tags = append(cfg.Tags, opentracing.Tag{
+		Key:   "service.version",
+		Value: version,
+	})
 
 	reporter, err := cfg.Reporter.NewReporter(serviceName, nil, nil)
 	if err != nil {
