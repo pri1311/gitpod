@@ -15,6 +15,7 @@ const MySQLStore = mysqlstore(session);
 import { log } from '@gitpod/gitpod-protocol/lib/util/logging';
 import { Config as DBConfig } from '@gitpod/gitpod-db/lib/config';
 import { Config } from './config';
+import * as signature from 'cookie-signature';
 
 @injectable()
 export class SessionHandlerProvider {
@@ -100,5 +101,18 @@ export class SessionHandlerProvider {
                 log.debug('MySQL session store error: ', err);
             }
         });
+    }
+
+    public generateCookieForSession(config: Config, session: session.Session) {
+        // This replicates the behavior of https://github.com/expressjs/session/blob/85682a2a56c5bdbed8d7e7cd2cc5e1343c951af6/index.js#L644
+        const name = SessionHandlerProvider.getCookieName(config);
+        const secret = config.session.secret;
+        const signed = encodeURIComponent('s:' + signature.sign(session.id, secret));
+
+        return {
+            name,
+            value: signed,
+            options: this.getCookieOptions(config),
+        };
     }
 }

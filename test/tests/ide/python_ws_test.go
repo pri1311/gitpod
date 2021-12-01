@@ -59,10 +59,15 @@ func TestPythonExtWorkspace(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			// _, err = api.GitpodSession(nfo.LatestInstance.ID, integration.WithGitpodUser(username))
-			// if err != nil {
-			// 	t.Fatal(err)
-			// }
+			_, err = api.CreateGitpodOneTimeSecret("FOO1")
+			if err != nil {
+				t.Fatal(err)
+			}
+
+			_, err = api.GitpodSession(nfo.LatestInstance.ID, integration.WithGitpodUser(username))
+			if err != nil {
+				t.Fatal(err)
+			}
 
 			t.Log(">>>>>>>>>>>>>>>>>> before rpc into workspace")
 			rsa, closer, err := integration.Instrument(integration.ComponentWorkspace, "workspace", cfg.Namespace(), cfg.Client(), integration.WithInstanceID(nfo.LatestInstance.ID), integration.WithWorkspacekitLift(true))
@@ -106,7 +111,6 @@ func TestPythonExtWorkspace(t *testing.T) {
 			// if err != nil {
 			// 	t.Fatal(err)
 			// }
-
 
 			var resp agent.ExecResponse
 			err = rsa.Call("WorkspaceAgent.Exec", &agent.ExecRequest{

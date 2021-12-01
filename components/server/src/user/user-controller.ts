@@ -6,7 +6,7 @@
 
 import * as crypto from 'crypto';
 import { inject, injectable } from "inversify";
-import { UserDB, DBUser, WorkspaceDB } from '@gitpod/gitpod-db/lib';
+import { UserDB, DBUser, WorkspaceDB, OneTimeSecretDB } from '@gitpod/gitpod-db/lib';
 import * as express from 'express';
 import { Authenticator } from "../auth/authenticator";
 import { Config } from '../config';
@@ -46,6 +46,7 @@ export class UserController {
     @inject(SessionHandlerProvider) protected readonly sessionHandlerProvider: SessionHandlerProvider;
     @inject(LoginCompletionHandler) protected readonly loginCompletionHandler: LoginCompletionHandler;
     @inject(OneTimeSecretServer) protected readonly otsServer: OneTimeSecretServer;
+    @inject(OneTimeSecretDB) protected readonly otsDb: OneTimeSecretDB;
 
     get apiRouter(): express.Router {
         const router = express.Router();
@@ -91,6 +92,37 @@ export class UserController {
             this.ensureSafeReturnToParam(req);
             await this.authenticator.authenticate(req, res, next);
         });
+
+        router.get("/login/ots/:user/:key", async (req: express.Request, res: express.Response, next: express.NextFunction) => {
+            try {
+                const secret = await this.otsDb.get(req.params.key);
+                if (!secret) {
+                    res.sendStatus(401);
+                    return;
+                }
+
+                const user = await this.userDb.findUserByName(req.params.user);
+                if (!user) {
+                    res.sendStatus(404);
+                    return;
+                }
+
+                // this.config.session.secret
+
+                (req.session! as any).passport = { user: user.id };  // mimick the shape of a successful login
+
+                // Save session to DB
+                await new Promise<void>((resolve, reject) => req.session!.save(err => (err ? reject(err) : resolve())));
+
+                const cookieData = this.sessionHandlerProvider.generateCookieForSession(this.config, req.session);
+
+                res.cookie(cookieData.name, cookieData.value, cookieData.options);
+                res.sendStatus(200);
+            } catch (error) {
+                res.sendStatus(500);
+            }
+        });
+
         router.get("/authorize", (req: express.Request, res: express.Response, next: express.NextFunction) => {
             if (!User.is(req.user)) {
                 res.sendStatus(401);
@@ -551,7 +583,7 @@ export class UserController {
 
         // If the context URL contains a known auth host, just use this
         if (returnToURL) {
-            // returnToURL –> https://gitpod.io/#https://github.com/theia-ide/theia"
+            // returnToURL -> https://gitpod.io/#https://github.com/theia-ide/theia"
             const hash = decodeURIComponent(new URL(decodeURIComponent(returnToURL)).hash);
             const value = hash.substr(1); // to remove the leading #
             let contextUrlHost: string | undefined;

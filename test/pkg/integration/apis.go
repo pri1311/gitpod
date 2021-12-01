@@ -12,6 +12,7 @@ import (
 	"database/sql"
 	"fmt"
 	"net/http"
+	"net/http/httputil"
 	"net/url"
 	"strconv"
 	"strings"
@@ -230,7 +231,7 @@ func (c *ComponentAPI) GitpodServer(opts ...GitpodServerOpt) (gitpod.APIInterfac
 	return res, nil
 }
 
-func (c *ComponentAPI) GitpodSession(workspaceId string, opts ...GitpodServerOpt) (string, error) {
+func (c *ComponentAPI) GitpodSession(secret string, opts ...GitpodServerOpt) (string, error) {
 	var options gitpodServerOpts
 	for _, o := range opts {
 		err := o(&options)
@@ -241,23 +242,6 @@ func (c *ComponentAPI) GitpodSession(workspaceId string, opts ...GitpodServerOpt
 
 	var res string
 	err := func() error {
-		tkn := c.serverStatus.Token[options.User]
-		if tkn == "" {
-			var err error
-			tkn, err = c.createGitpodToken(options.User)
-			if err != nil {
-				return err
-			}
-			c.serverStatus.Token[options.User] = tkn
-		}
-
-		var pods corev1.PodList
-		err := c.client.Resources(c.namespace).List(context.Background(), &pods, func(opts *metav1.ListOptions) {
-			opts.LabelSelector = "component=server"
-		})
-		if err != nil {
-			return err
-		}
 
 		config, err := GetServerConfig(c.namespace, c.client)
 		if err != nil {
@@ -276,14 +260,28 @@ func (c *ComponentAPI) GitpodSession(workspaceId string, opts ...GitpodServerOpt
 
 		origin := fmt.Sprintf("%s://%s/", "https", endpoint.Hostname())
 
-		reqHeader := http.Header{}
-		reqHeader.Set("Origin", origin)
-		reqHeader.Set("Authorization", "Bearer "+tkn)
+		client := &http.Client{
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+		}
 
-		httpresp, err := http.Get(hostURL + "/auth/workspace-cookie/" + workspaceId)
+		req, _ := http.NewRequest("GET", hostURL+fmt.Sprintf("/api/login/ots/%s/%s", options.User, secret), nil)
+		req.Header.Set("Origin", origin)
+		// req.Header.Set("Connection", "Upgrade")
+		// req.Header.Set("Upgrade", "websocket")
+
+		// req.Header.Set("Sec-WebSocket-Extensions", "permessage-deflate; client_max_window_bits")
+		// req.Header.Set("Sec-WebSocket-Key", "d7ibjgYk4jfFaHIKbRXc9w==")
+		// req.Header.Set("Sec-WebSocket-Version", "13")
+
+		httpresp, err := client.Do(req)
 		if err != nil {
 			return err
 		}
+
+		byteArr, _ := httputil.DumpResponse(httpresp, true)
+		fmt.Println(string(byteArr))
 
 		cookies := httpresp.Cookies()
 		for _, c := range cookies {
@@ -353,6 +351,36 @@ func (c *ComponentAPI) createGitpodToken(user string) (tkn string, err error) {
 	})
 
 	return tkn, nil
+}
+
+func (c *ComponentAPI) CreateGitpodOneTimeSecret(value string) (id string, err error) {
+	db, err := c.DB()
+	if err != nil {
+		return "", err
+	}
+
+	rawUuid, err := uuid.NewRandom()
+	if err != nil {
+		return "", err
+	}
+	id = rawUuid.String()
+
+	_, err = db.Exec("INSERT INTO d_b_one_time_secret (id, value, expirationTime, deleted) VALUES (?, ?, ?, ?)",
+		id,
+		value,
+		time.Now().Add(30 * time.Minute).UTC().Format("2006-01-02 15:04:05.999999"),
+		false,
+	)
+	if err != nil {
+		return "", err
+	}
+
+	c.appendCloser(func() error {
+		_, err := db.Exec("DELETE FROM d_b_one_time_secret WHERE id = ?", id)
+		return err
+	})
+
+	return id, nil
 }
 
 // WorkspaceManager provides access to ws-manager
