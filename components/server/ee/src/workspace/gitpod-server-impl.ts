@@ -727,7 +727,7 @@ export class GitpodServerEEImpl extends GitpodServerImpl {
     }
 
     // TODO(gpl) This is not part of our API interface, nor can I find any clients. Remove or re-surrect?
-    // async getLicenseInfo(ctx: TraceContext, ): Promise<GetLicenseInfoResult> {
+    // async getLicenseInfo(ctx: TraceContext): Promise<GetLicenseInfoResult> {
     //     const user = this.checkAndBlockUser("getLicenseInfo");
 
     //     const { key } = await this.licenseKeySource.getKey();
@@ -770,20 +770,20 @@ export class GitpodServerEEImpl extends GitpodServerImpl {
         return this.accountStatementProvider.getAccountStatement(user.id, now);
     }
 
-    public async getRemainingUsageHours(ctx: TraceContext, ): Promise<number> {
+    public async getRemainingUsageHours(ctx: TraceContext): Promise<number> {
         const user = this.checkUser("getRemainingUsageHours");
         const runningInstancesPromise = this.workspaceDb.trace(ctx).findRegularRunningInstances(user.id);
         return this.accountStatementProvider.getRemainingUsageHours(user.id, new Date().toISOString(), runningInstancesPromise);
     }
 
     // (SaaS) – payment/billing
-    async getAvailableCoupons(ctx: TraceContext, ): Promise<PlanCoupon[]> {
+    async getAvailableCoupons(ctx: TraceContext): Promise<PlanCoupon[]> {
         const user = this.checkUser('getAvailableCoupons');
         const couponIds = await this.couponComputer.getAvailableCouponIds(user);
         return this.getChargebeePlanCoupons(ctx, couponIds);
     }
 
-    async getAppliedCoupons(ctx: TraceContext, ): Promise<PlanCoupon[]> {
+    async getAppliedCoupons(ctx: TraceContext): Promise<PlanCoupon[]> {
         const user = this.checkUser('getAppliedCoupons');
         const couponIds = await this.couponComputer.getAppliedCouponIds(user, new Date());
         return this.getChargebeePlanCoupons(ctx, couponIds);
@@ -799,7 +799,7 @@ export class GitpodServerEEImpl extends GitpodServerImpl {
         return this.config.chargebeeProviderOptions.site;
     }
 
-    public async isStudent(ctx: TraceContext, ): Promise<boolean> {
+    public async isStudent(ctx: TraceContext): Promise<boolean> {
         const user = this.checkUser("isStudent");
         return this.eligibilityService.isStudent(user);
     }
@@ -809,7 +809,7 @@ export class GitpodServerEEImpl extends GitpodServerImpl {
         return !!this.config.enablePayment;
     }
 
-    async isChargebeeCustomer(ctx: TraceContext, ): Promise<boolean> {
+    async isChargebeeCustomer(ctx: TraceContext): Promise<boolean> {
         const user = this.checkUser('isChargebeeCustomer');
 
         return await new Promise<boolean>((resolve, reject) => {
@@ -871,7 +871,7 @@ export class GitpodServerEEImpl extends GitpodServerImpl {
         return result;
     }
 
-    async createPortalSession(ctx: TraceContext, ): Promise<{}> {
+    async createPortalSession(ctx: TraceContext): Promise<{}> {
         const user = this.checkUser('createPortalSession');
         const logContext = { userId: user.id };
 
@@ -1044,12 +1044,12 @@ export class GitpodServerEEImpl extends GitpodServerImpl {
     }
 
     // Team Subscriptions
-    async tsGet(ctx: TraceContext, ): Promise<TeamSubscription[]> {
+    async tsGet(ctx: TraceContext): Promise<TeamSubscription[]> {
         const user = this.checkUser('getTeamSubscriptions');
         return this.teamSubscriptionDB.findTeamSubscriptionsForUser(user.id, new Date().toISOString());
     }
 
-    async tsGetSlots(ctx: TraceContext, ): Promise<TeamSubscriptionSlotResolved[]> {
+    async tsGetSlots(ctx: TraceContext): Promise<TeamSubscriptionSlotResolved[]> {
         const user = this.checkUser('tsGetSlots');
         return this.teamSubscriptionService.findTeamSubscriptionSlotsBy(user.id, new Date());
     }
@@ -1214,7 +1214,7 @@ export class GitpodServerEEImpl extends GitpodServerImpl {
         });
     }
 
-    async getGithubUpgradeUrls(ctx: TraceContext, ): Promise<GithubUpgradeURL[]> {
+    async getGithubUpgradeUrls(ctx: TraceContext): Promise<GithubUpgradeURL[]> {
         const user = this.checkUser('getGithubUpgradeUrls');
         const ghidentity = user.identities.find(i => i.authProviderId == "Public-GitHub");
         if (!ghidentity) {
