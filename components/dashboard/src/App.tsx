@@ -85,7 +85,7 @@ function isWebsiteSlug(pathName: string) {
     return slugs.some(slug => pathName.startsWith('/' + slug + '/') || pathName === ('/' + slug));
 }
 
-function getURLHash() {
+export function getURLHash() {
     return window.location.hash.replace(/^[#/]+/, '');
 }
 

@@ -21,6 +21,7 @@ import customize from "./images/welcome/customize.svg";
 import fresh from "./images/welcome/fresh.svg";
 import prebuild from "./images/welcome/prebuild.svg";
 import exclamation from "./images/exclamation.svg";
+import { getURLHash } from "./App";
 
 
 function Item(props: { icon: string, iconSize?: string, text: string }) {
@@ -46,16 +47,31 @@ export function hasVisitedMarketingWebsiteBefore() {
 export function Login() {
     const { setUser } = useContext(UserContext);
     const { setTeams } = useContext(TeamsContext);
-    const showWelcome = !hasLoggedInBefore() && !hasVisitedMarketingWebsiteBefore();
+    const urlHash = getURLHash();
+    let hostFromContext: string | undefined;
+    try {
+        hostFromContext = urlHash.length > 0 ? new URL(urlHash).host : undefined;
+    } catch (error) {
+        // Hash is not a valid URL
+    }
 
-    const [ authProviders, setAuthProviders ] = useState<AuthProviderInfo[]>([]);
-    const [ errorMessage, setErrorMessage ] = useState<string | undefined>(undefined);
+    const [authProviders, setAuthProviders] = useState<AuthProviderInfo[]>([]);
+    const [errorMessage, setErrorMessage] = useState<string | undefined>(undefined);
+    const [providerFromContext, setProviderFromContext] = useState<AuthProviderInfo>();
+    const showWelcome = !hasLoggedInBefore() && !hasVisitedMarketingWebsiteBefore() && !urlHash.startsWith("https://");
 
     useEffect(() => {
         (async () => {
             setAuthProviders(await getGitpodService().server.getAuthProviders());
         })();
     }, [])
+
+    useEffect(() => {
+        if (hostFromContext && authProviders) {
+            const providerFromContext = authProviders.find(provider => provider.host === hostFromContext);
+            setProviderFromContext(providerFromContext);
+        }
+    }, [authProviders])
 
     const authorizeSuccessful = async (payload?: string) => {
         updateUser().catch(console.error);
@@ -69,7 +85,7 @@ export function Login() {
 
     const updateUser = async () => {
         await getGitpodService().reconnect();
-        const [ user, teams ] = await Promise.all([
+        const [user, teams] = await Promise.all([
             getGitpodService().server.getLoggedInUser(),
             getGitpodService().server.getTeams(),
         ]);
@@ -138,19 +154,35 @@ export function Login() {
                         <div className="mx-auto pb-8">
                             <img src={gitpodIcon} className="h-16 mx-auto" alt="Gitpod's logo" />
                         </div>
+
                         <div className="mx-auto text-center pb-8 space-y-2">
-                            <h1 className="text-3xl">Log in{showWelcome ? '' : ' to Gitpod'}</h1>
-                            <h2 className="uppercase text-sm text-gray-400">ALWAYS READY-TO-CODE</h2>
+                            {providerFromContext
+                                ? <>
+                                    <h1 className="text-3xl">Log in / Sign up</h1>
+                                    <h2 className="text-m text-gray-400">Open a cloud-based environment for</h2>
+                                    <h2 className="text-m text-gray-400">{urlHash}</h2>
+                                </>
+                                : <>
+                                    <h1 className="text-3xl">Log in{showWelcome ? '' : ' to Gitpod'}</h1>
+                                    <h2 className="uppercase text-sm text-gray-400">ALWAYS READY-TO-CODE</h2>
+                                </>}
                         </div>
+
+
                         <div className="flex flex-col space-y-3 items-center">
-                            {authProviders.map(ap => {
-                                return (
-                                    <button key={"button" + ap.host} className="btn-login flex-none w-56 h-10 p-0 inline-flex" onClick={() => openLogin(ap.host)}>
-                                        {iconForAuthProvider(ap.authProviderType)}
-                                        <span className="pt-2 pb-2 mr-3 text-sm my-auto font-medium truncate overflow-ellipsis">Continue with {simplifyProviderName(ap.host)}</span>
+                            {providerFromContext
+                                ?
+                                    <button key={"button" + providerFromContext.host} className="btn-login flex-none w-56 h-10 p-0 inline-flex" onClick={() => openLogin(providerFromContext.host)}>
+                                        {iconForAuthProvider(providerFromContext.authProviderType)}
+                                        <span className="pt-2 pb-2 mr-3 text-sm my-auto font-medium truncate overflow-ellipsis">Continue with {simplifyProviderName(providerFromContext.host)}</span>
                                     </button>
-                                );
-                            })}
+                                :
+                                    authProviders.map(ap =>
+                                        <button key={"button" + ap.host} className="btn-login flex-none w-56 h-10 p-0 inline-flex" onClick={() => openLogin(ap.host)}>
+                                            {iconForAuthProvider(ap.authProviderType)}
+                                            <span className="pt-2 pb-2 mr-3 text-sm my-auto font-medium truncate overflow-ellipsis">Continue with {simplifyProviderName(ap.host)}</span>
+                                        </button>)
+                            }
                         </div>
 
                         {errorMessage && (
