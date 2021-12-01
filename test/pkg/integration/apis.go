@@ -368,7 +368,7 @@ func (c *ComponentAPI) CreateGitpodOneTimeSecret(value string) (id string, err e
 	_, err = db.Exec("INSERT INTO d_b_one_time_secret (id, value, expirationTime, deleted) VALUES (?, ?, ?, ?)",
 		id,
 		value,
-		time.Now().Add(30 * time.Minute).UTC().Format("2006-01-02 15:04:05.999999"),
+		time.Now().Add(30*time.Minute).UTC().Format("2006-01-02 15:04:05.999999"),
 		false,
 	)
 	if err != nil {
