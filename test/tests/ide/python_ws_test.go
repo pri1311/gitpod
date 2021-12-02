@@ -6,6 +6,7 @@ package ide
 
 import (
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"testing"
@@ -59,12 +60,12 @@ func TestPythonExtWorkspace(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			_, err = api.CreateGitpodOneTimeSecret("FOO1")
+			secretKey, err := api.CreateGitpodOneTimeSecret(`{"data":"/MG7lVi95GNaQ+RisCrjtHZidlp8yGed607LDl3e8pY9rIy0zK56E8a5iHaMN+aZiafT0HIS+3L8qbnwFW+4zg==","keyParams":{"iv":"j9UQ4wI2fA7un3Ay4+y6ZQ=="},"keyMetadata":{"name":"general","version":1}}`)
 			if err != nil {
 				t.Fatal(err)
 			}
 
-			_, err = api.GitpodSession(nfo.LatestInstance.ID, integration.WithGitpodUser(username))
+			sessionCookie, err := api.GitpodSessionCookie(secretKey, integration.WithGitpodUser(username))
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -112,6 +113,17 @@ func TestPythonExtWorkspace(t *testing.T) {
 			// 	t.Fatal(err)
 			// }
 
+			jsonCookie := fmt.Sprintf(
+				`{"name": "%v","value": "%v","domain": "%v","path": "%v","expires": %v,"httpOnly": %v,"secure": %v,"sameSite": "Lax"}`,
+				sessionCookie.Name,
+				sessionCookie.Value,
+				sessionCookie.Domain,
+				sessionCookie.Path,
+				sessionCookie.Expires.Unix(),
+				sessionCookie.HttpOnly,
+				sessionCookie.Secure,
+			)
+
 			var resp agent.ExecResponse
 			err = rsa.Call("WorkspaceAgent.Exec", &agent.ExecRequest{
 				Dir:     "/workspace/python-test-workspace",
@@ -119,6 +131,7 @@ func TestPythonExtWorkspace(t *testing.T) {
 				Args: []string{
 					"openvscode-server-test",
 					fmt.Sprintf("--endpoint=%s", nfo.LatestInstance.IdeURL),
+					fmt.Sprintf("--authCookie=%s", base64.StdEncoding.EncodeToString([]byte(jsonCookie))),
 					"--workspacePath=./src/testWorkspace",
 					"--extensionDevelopmentPath=./out",
 					"--extensionTestsPath=./out/test/suite",

@@ -231,16 +231,16 @@ func (c *ComponentAPI) GitpodServer(opts ...GitpodServerOpt) (gitpod.APIInterfac
 	return res, nil
 }
 
-func (c *ComponentAPI) GitpodSession(secret string, opts ...GitpodServerOpt) (string, error) {
+func (c *ComponentAPI) GitpodSessionCookie(secretKey string, opts ...GitpodServerOpt) (*http.Cookie, error) {
 	var options gitpodServerOpts
 	for _, o := range opts {
 		err := o(&options)
 		if err != nil {
-			return "", xerrors.Errorf("cannot access Gitpod server API: %q", err)
+			return nil, xerrors.Errorf("cannot access Gitpod server API: %q", err)
 		}
 	}
 
-	var res string
+	var res *http.Cookie
 	err := func() error {
 
 		config, err := GetServerConfig(c.namespace, c.client)
@@ -266,7 +266,7 @@ func (c *ComponentAPI) GitpodSession(secret string, opts ...GitpodServerOpt) (st
 			},
 		}
 
-		req, _ := http.NewRequest("GET", hostURL+fmt.Sprintf("/api/login/ots/%s/%s", options.User, secret), nil)
+		req, _ := http.NewRequest("GET", hostURL+fmt.Sprintf("/api/login/ots/%s/%s", options.User, secretKey), nil)
 		req.Header.Set("Origin", origin)
 		// req.Header.Set("Connection", "Upgrade")
 		// req.Header.Set("Upgrade", "websocket")
@@ -284,14 +284,14 @@ func (c *ComponentAPI) GitpodSession(secret string, opts ...GitpodServerOpt) (st
 		fmt.Println(string(byteArr))
 
 		cookies := httpresp.Cookies()
-		for _, c := range cookies {
-			res = c.String()
+		if len(cookies) > 0 {
+			res = cookies[0]
 		}
 
 		return nil
 	}()
 	if err != nil {
-		return "", xerrors.Errorf("cannot access Gitpod server API: %q", err)
+		return nil, xerrors.Errorf("cannot access Gitpod server API: %q", err)
 	}
 
 	return res, nil
