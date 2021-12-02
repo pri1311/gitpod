@@ -47,6 +47,9 @@ packages:
       image:
         - ${imageRepoBase}/dashboard:${version}
         - ${imageRepoBase}/dashboard:commit-${__git_commit}
+    prep:
+      - ["touch", "version.yml"]
+      - ["sh", "-c", "echo 'component: ${__git_commit}' > version.yml"]
 scripts:
   - name: telepresence
     script: |-
