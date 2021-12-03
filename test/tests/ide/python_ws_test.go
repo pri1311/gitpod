@@ -54,13 +54,14 @@ func TestPythonExtWorkspace(t *testing.T) {
 				t.Fatal(err)
 			}
 			defer stopWs(true)
-			t.Log(">>>>>>>>>>>>>>>>>> before wait for workspace")
+
 			_, err = integration.WaitForWorkspaceStart(ctx, nfo.LatestInstance.ID, api)
 			if err != nil {
 				t.Fatal(err)
 			}
 
-			secretKey, err := api.CreateGitpodOneTimeSecret(`{"data":"/MG7lVi95GNaQ+RisCrjtHZidlp8yGed607LDl3e8pY9rIy0zK56E8a5iHaMN+aZiafT0HIS+3L8qbnwFW+4zg==","keyParams":{"iv":"j9UQ4wI2fA7un3Ay4+y6ZQ=="},"keyMetadata":{"name":"general","version":1}}`)
+			// {"user":"<user-id-goes-here>", "hash":hash("userid" + "sessionSecret")}
+			secretKey, err := api.CreateGitpodOneTimeSecret(`"FOO"`)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -70,14 +71,12 @@ func TestPythonExtWorkspace(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			t.Log(">>>>>>>>>>>>>>>>>> before rpc into workspace")
 			rsa, closer, err := integration.Instrument(integration.ComponentWorkspace, "workspace", cfg.Namespace(), cfg.Client(), integration.WithInstanceID(nfo.LatestInstance.ID), integration.WithWorkspacekitLift(true))
 			if err != nil {
 				t.Fatal(err)
 			}
 			defer rsa.Close()
 			integration.DeferCloser(t, closer)
-			t.Log(">>>>>>>>>>>>>>>>>> before exec")
 
 			_, err = poolTask(func() (bool, error) {
 				var resp agent.ExecResponse
@@ -95,23 +94,6 @@ func TestPythonExtWorkspace(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-
-			// db, err := api.DB(integration.DBName("gitpod-sessions"))
-			// if err != nil {
-			// 	t.Fatal(err)
-			// }
-
-			// var rawCookieData string
-			// err = db.QueryRow("SELECT data FROM sessions LIMIT 1").Scan(&rawCookieData)
-			// if err != nil {
-			// 	t.Fatal(err)
-			// }
-
-			// var cookieData integration.CookieData
-			// err = json.Unmarshal([]byte(rawCookieData), &cookieData)
-			// if err != nil {
-			// 	t.Fatal(err)
-			// }
 
 			jsonCookie := fmt.Sprintf(
 				`{"name": "%v","value": "%v","domain": "%v","path": "%v","expires": %v,"httpOnly": %v,"secure": %v,"sameSite": "Lax"}`,
@@ -142,14 +124,13 @@ func TestPythonExtWorkspace(t *testing.T) {
 				t.Fatal(err)
 			}
 			t.Log(">>>>>>>>>>>>>>>>>> no exec errors")
-			t.Log(">>>>>>>>>>>>>>>>>> stdout", resp.Stdout)
-			t.Log(">>>>>>>>>>>>>>>>>> stderr", resp.Stderr)
-			// if err != nil {
-			// 	t.Fatal(err)
-			// }
-			// for _, f := range ls.Files {
-			// 	t.Log(f)
-			// }
+
+			if resp.ExitCode != 0 {
+				t.Log("Ide integration stdout:\n", resp.Stdout)
+				t.Log("Ide integration stderr:\n", resp.Stderr)
+				t.Fatal("There was an error running ide test")
+
+			}
 
 			return ctx
 		}).

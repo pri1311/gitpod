@@ -5,11 +5,16 @@
 package integration
 
 import (
+	"bytes"
 	"context"
+	"crypto/aes"
+	"crypto/cipher"
 	"crypto/sha256"
 	"crypto/tls"
 	"crypto/x509"
 	"database/sql"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httputil"
@@ -98,11 +103,22 @@ type ComponentAPI struct {
 	imgbldStatusMu         sync.Mutex
 }
 
+type EncryptionKeyMetadata struct {
+	Name    string
+	Version int
+}
+
+type EncryptionKey struct {
+	Metadata EncryptionKeyMetadata
+	Material []byte
+}
+
 type DBConfig struct {
-	Host        string
-	Port        int32
-	ForwardPort *ForwardPort
-	Password    string
+	Host           string
+	Port           int32
+	ForwardPort    *ForwardPort
+	Password       string
+	EncryptionKeys EncryptionKey
 }
 
 type ForwardPort struct {
@@ -268,20 +284,14 @@ func (c *ComponentAPI) GitpodSessionCookie(secretKey string, opts ...GitpodServe
 
 		req, _ := http.NewRequest("GET", hostURL+fmt.Sprintf("/api/login/ots/%s/%s", options.User, secretKey), nil)
 		req.Header.Set("Origin", origin)
-		// req.Header.Set("Connection", "Upgrade")
-		// req.Header.Set("Upgrade", "websocket")
-
-		// req.Header.Set("Sec-WebSocket-Extensions", "permessage-deflate; client_max_window_bits")
-		// req.Header.Set("Sec-WebSocket-Key", "d7ibjgYk4jfFaHIKbRXc9w==")
-		// req.Header.Set("Sec-WebSocket-Version", "13")
 
 		httpresp, err := client.Do(req)
 		if err != nil {
 			return err
 		}
 
-		byteArr, _ := httputil.DumpResponse(httpresp, true)
-		fmt.Println(string(byteArr))
+		// byteArr, _ := httputil.DumpResponse(httpresp, true)
+		// fmt.Println(string(byteArr))
 
 		cookies := httpresp.Cookies()
 		if len(cookies) > 0 {
@@ -353,7 +363,46 @@ func (c *ComponentAPI) createGitpodToken(user string) (tkn string, err error) {
 	return tkn, nil
 }
 
+type KeyParams struct {
+	Iv string
+}
+
+type EncryptedData struct {
+	Data      string
+	KeyParams KeyParams
+}
+
+func EncryptValue(value []byte, key []byte) *EncryptedData {
+	PKCS5Padding := func(ciphertext []byte, blockSize int, after int) []byte {
+		padding := (blockSize - len(ciphertext)%blockSize)
+		padtext := bytes.Repeat([]byte{byte(padding)}, padding)
+		return append(ciphertext, padtext...)
+	}
+
+	iv := []byte("1234567890123456")
+
+	block, _ := aes.NewCipher(key)
+	mode := cipher.NewCBCEncrypter(block, iv)
+
+	paddedValue := PKCS5Padding(value, aes.BlockSize, len(value))
+	ciphertext := make([]byte, len(paddedValue))
+	mode.CryptBlocks(ciphertext, paddedValue)
+
+	returnVal := EncryptedData{
+		Data: base64.StdEncoding.EncodeToString(ciphertext),
+		KeyParams: KeyParams{
+			Iv: base64.StdEncoding.EncodeToString(iv),
+		},
+	}
+	return &returnVal
+}
+
 func (c *ComponentAPI) CreateGitpodOneTimeSecret(value string) (id string, err error) {
+	dbConfig, err := FindDBConfigFromPodEnv("server", c.namespace, c.client)
+	if err != nil {
+		return "", err
+	}
+
 	db, err := c.DB()
 	if err != nil {
 		return "", err
@@ -365,9 +414,37 @@ func (c *ComponentAPI) CreateGitpodOneTimeSecret(value string) (id string, err e
 	}
 	id = rawUuid.String()
 
+	valueBytes, err := json.Marshal(value)
+	if err != nil {
+		return "", err
+	}
+
+	type EncriptedDBData struct {
+		Data      string `json:"data"`
+		KeyParams struct {
+			Iv string `json:"iv"`
+		} `json:"keyParams"`
+		KeyMetadata struct {
+			Name    string `json:"name"`
+			Version int    `json:"version"`
+		} `json:"keyMetadata"`
+	}
+	encryptedData := EncryptValue(valueBytes, dbConfig.EncryptionKeys.Material)
+	encrypted := EncriptedDBData{}
+	encrypted.Data = encryptedData.Data
+	encrypted.KeyParams.Iv = encryptedData.KeyParams.Iv
+	encrypted.KeyMetadata.Name = dbConfig.EncryptionKeys.Metadata.Name
+	encrypted.KeyMetadata.Version = dbConfig.EncryptionKeys.Metadata.Version
+	encryptedJson, err := json.Marshal(encrypted)
+	if err != nil {
+		return "", err
+	}
+	// fmt.Println(encryptedJson)
+	// encryptedJson = []byte(`{"data":"/MG7lVi95GNaQ+RisCrjtHZidlp8yGed607LDl3e8pY9rIy0zK56E8a5iHaMN+aZiafT0HIS+3L8qbnwFW+4zg==","keyParams":{"iv":"j9UQ4wI2fA7un3Ay4+y6ZQ=="},"keyMetadata":{"name":"general","version":1}}`)
+
 	_, err = db.Exec("INSERT INTO d_b_one_time_secret (id, value, expirationTime, deleted) VALUES (?, ?, ?, ?)",
 		id,
-		value,
+		string(encryptedJson),
 		time.Now().Add(30*time.Minute).UTC().Format("2006-01-02 15:04:05.999999"),
 		false,
 	)
@@ -548,6 +625,7 @@ func (c *ComponentAPI) DB(options ...DBOpt) (*sql.DB, error) {
 	c.appendCloser(db.Close)
 	return db, nil
 }
+
 func (c *ComponentAPI) findDBConfig() (*DBConfig, error) {
 	config, err := FindDBConfigFromPodEnv("server", c.namespace, c.client)
 	if err != nil {
@@ -640,6 +718,7 @@ func FindDBConfigFromPodEnv(componentName string, namespace string, client klien
 	pod := list.Items[0]
 
 	var password, host string
+	var dbEncryptionKeys *EncryptionKey
 	var port int32
 OuterLoop:
 	for _, c := range pod.Spec.Containers {
@@ -649,6 +728,30 @@ OuterLoop:
 				password, findErr = FindValueFromEnvVar(v, client, namespace)
 				if findErr != nil {
 					return nil, findErr
+				}
+			} else if v.Name == "DB_ENCRYPTION_KEYS" {
+				raw, findErr := FindValueFromEnvVar(v, client, namespace)
+				if findErr != nil {
+					return nil, findErr
+				}
+
+				var k []struct {
+					Name     string `json:"name"`
+					Version  int    `json:"version"`
+					Material []byte `json:"material"`
+				}
+				err = json.Unmarshal([]byte(raw), &k)
+				if err != nil {
+					return nil, err
+				}
+				if len(k) > 0 {
+					dbEncryptionKeys = &EncryptionKey{
+						Metadata: EncryptionKeyMetadata{
+							Name:    k[0].Name,
+							Version: k[0].Version,
+						},
+						Material: k[0].Material,
+					}
 				}
 			} else if v.Name == "DB_PORT" {
 				var portStr string
@@ -667,18 +770,19 @@ OuterLoop:
 					return nil, findErr
 				}
 			}
-			if password != "" && port != 0 && host != "" {
+			if password != "" && port != 0 && host != "" && dbEncryptionKeys != nil {
 				break OuterLoop
 			}
 		}
 	}
-	if password == "" || port == 0 || host == "" {
+	if password == "" || port == 0 || host == "" || dbEncryptionKeys == nil {
 		return nil, xerrors.Errorf("could not find complete DBConfig on pod %s!", pod.Name)
 	}
 	config := DBConfig{
-		Host:     host,
-		Port:     port,
-		Password: password,
+		Host:           host,
+		Port:           port,
+		Password:       password,
+		EncryptionKeys: *dbEncryptionKeys,
 	}
 	return &config, nil
 }

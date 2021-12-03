@@ -108,8 +108,11 @@ export class UserController {
                 }
 
                 // this.config.session.secret
+                // secret.
+                // {"user":"<user-id-goes-here>", "hash":hash("userid" + "sessionSecret")}
 
-                (req.session! as any).passport = { user: user.id };  // mimick the shape of a successful login
+                // mimick the shape of a successful login
+                (req.session! as any).passport = { user: user.id };
 
                 // Save session to DB
                 await new Promise<void>((resolve, reject) => req.session!.save(err => (err ? reject(err) : resolve())));
