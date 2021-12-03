@@ -114,9 +114,6 @@ export class UserController {
                 // Save session to DB
                 await new Promise<void>((resolve, reject) => req.session!.save(err => (err ? reject(err) : resolve())));
 
-                const cookieData = this.sessionHandlerProvider.generateCookieForSession(this.config, req.session);
-
-                res.cookie(cookieData.name, cookieData.value, cookieData.options);
                 res.sendStatus(200);
             } catch (error) {
                 res.sendStatus(500);
