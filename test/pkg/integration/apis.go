@@ -310,9 +310,6 @@ func (c *ComponentAPI) GitpodSessionCookie(secretKey string, user string) (*http
 			return err
 		}
 
-		// byteArr, _ := httputil.DumpResponse(httpresp, true)
-		// fmt.Println(string(byteArr))
-
 		cookies := httpresp.Cookies()
 		if len(cookies) > 0 {
 			res = cookies[0]
@@ -442,8 +439,6 @@ func (c *ComponentAPI) CreateGitpodOneTimeSecret(value string) (id string, err e
 	if err != nil {
 		return "", err
 	}
-	// fmt.Println(encryptedJson)
-	// encryptedJson = []byte(`{"data":"/MG7lVi95GNaQ+RisCrjtHZidlp8yGed607LDl3e8pY9rIy0zK56E8a5iHaMN+aZiafT0HIS+3L8qbnwFW+4zg==","keyParams":{"iv":"j9UQ4wI2fA7un3Ay4+y6ZQ=="},"keyMetadata":{"name":"general","version":1}}`)
 
 	_, err = db.Exec("INSERT INTO d_b_one_time_secret (id, value, expirationTime, deleted) VALUES (?, ?, ?, ?)",
 		id,
