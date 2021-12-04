@@ -45,10 +45,6 @@ import (
 	wsmanapi "github.com/gitpod-io/gitpod/ws-manager/api"
 )
 
-var (
-	errNoSuitableUser = xerrors.Errorf("no suitable user found: make sure there's at least one non-builtin user in the database (e.g. login)")
-)
-
 // API provides access to the individual component's API
 func NewComponentAPI(ctx context.Context, namespace string, client klient.Client) *ComponentAPI {
 	return &ComponentAPI{
@@ -123,6 +119,40 @@ type DBConfig struct {
 type ForwardPort struct {
 	PodName    string
 	RemotePort int32
+}
+
+type KeyParams struct {
+	Iv string
+}
+
+type EncryptedData struct {
+	Data      string
+	KeyParams KeyParams
+}
+
+func EncryptValue(value []byte, key []byte) *EncryptedData {
+	PKCS5Padding := func(ciphertext []byte, blockSize int, after int) []byte {
+		padding := (blockSize - len(ciphertext)%blockSize)
+		padtext := bytes.Repeat([]byte{byte(padding)}, padding)
+		return append(ciphertext, padtext...)
+	}
+
+	iv := []byte("1234567890123456")
+
+	block, _ := aes.NewCipher(key)
+	mode := cipher.NewCBCEncrypter(block, iv)
+
+	paddedValue := PKCS5Padding(value, aes.BlockSize, len(value))
+	ciphertext := make([]byte, len(paddedValue))
+	mode.CryptBlocks(ciphertext, paddedValue)
+
+	returnVal := EncryptedData{
+		Data: base64.StdEncoding.EncodeToString(ciphertext),
+		KeyParams: KeyParams{
+			Iv: base64.StdEncoding.EncodeToString(iv),
+		},
+	}
+	return &returnVal
 }
 
 // Supervisor provides a gRPC connection to a workspace's supervisor
@@ -246,18 +276,9 @@ func (c *ComponentAPI) GitpodServer(opts ...GitpodServerOpt) (gitpod.APIInterfac
 	return res, nil
 }
 
-func (c *ComponentAPI) GitpodSessionCookie(secretKey string, opts ...GitpodServerOpt) (*http.Cookie, error) {
-	var options gitpodServerOpts
-	for _, o := range opts {
-		err := o(&options)
-		if err != nil {
-			return nil, xerrors.Errorf("cannot access Gitpod server API: %q", err)
-		}
-	}
-
+func (c *ComponentAPI) GitpodSessionCookie(secretKey string, user string) (*http.Cookie, error) {
 	var res *http.Cookie
 	err := func() error {
-
 		config, err := GetServerConfig(c.namespace, c.client)
 		if err != nil {
 			return err
@@ -281,7 +302,7 @@ func (c *ComponentAPI) GitpodSessionCookie(secretKey string, opts ...GitpodServe
 			},
 		}
 
-		req, _ := http.NewRequest("GET", hostURL+fmt.Sprintf("/api/login/ots/%s/%s", options.User, secretKey), nil)
+		req, _ := http.NewRequest("GET", hostURL+fmt.Sprintf("/api/login/ots/%s/%s", user, secretKey), nil)
 		req.Header.Set("Origin", origin)
 
 		httpresp, err := client.Do(req)
@@ -300,20 +321,19 @@ func (c *ComponentAPI) GitpodSessionCookie(secretKey string, opts ...GitpodServe
 		return nil
 	}()
 	if err != nil {
-		return nil, xerrors.Errorf("cannot access Gitpod server API: %q", err)
+		return nil, err
 	}
 
 	return res, nil
 }
 
-func (c *ComponentAPI) createGitpodToken(user string) (tkn string, err error) {
-	var row *sql.Row
-
+func (c *ComponentAPI) GetUserId(user string) (userId string, err error) {
 	db, err := c.DB()
 	if err != nil {
 		return "", err
 	}
 
+	var row *sql.Row
 	if user == "" {
 		row = db.QueryRow(`SELECT id FROM d_b_user WHERE NOT id = "` + gitpodBuiltinUserID + `" AND blocked = FALSE AND markedDeleted = FALSE`)
 	} else {
@@ -323,10 +343,19 @@ func (c *ComponentAPI) createGitpodToken(user string) (tkn string, err error) {
 	var id string
 	err = row.Scan(&id)
 	if err == sql.ErrNoRows {
-		return "", errNoSuitableUser
+		return "", xerrors.Errorf("no suitable user found: make sure there's at least one non-builtin user in the database (e.g. login)")
 	}
 	if err != nil {
 		return "", xerrors.Errorf("cannot look for users: %w", err)
+	}
+
+	return id, nil
+}
+
+func (c *ComponentAPI) createGitpodToken(user string) (tkn string, err error) {
+	id, err := c.GetUserId(user)
+	if err != nil {
+		return "", err
 	}
 
 	rawTkn, err := uuid.NewRandom()
@@ -342,6 +371,10 @@ func (c *ComponentAPI) createGitpodToken(user string) (tkn string, err error) {
 	// see https://github.com/gitpod-io/gitpod/blob/master/components/gitpod-protocol/src/protocol.ts#L274
 	const tokenTypeMachineAuthToken = 1
 
+	db, err := c.DB()
+	if err != nil {
+		return "", err
+	}
 	_, err = db.Exec("INSERT INTO d_b_gitpod_token (tokenHash, name, type, userId, scopes, created) VALUES (?, ?, ?, ?, ?, ?)",
 		hashVal,
 		fmt.Sprintf("integration-test-%d", time.Now().UnixNano()),
@@ -362,40 +395,6 @@ func (c *ComponentAPI) createGitpodToken(user string) (tkn string, err error) {
 	return tkn, nil
 }
 
-type KeyParams struct {
-	Iv string
-}
-
-type EncryptedData struct {
-	Data      string
-	KeyParams KeyParams
-}
-
-func EncryptValue(value []byte, key []byte) *EncryptedData {
-	PKCS5Padding := func(ciphertext []byte, blockSize int, after int) []byte {
-		padding := (blockSize - len(ciphertext)%blockSize)
-		padtext := bytes.Repeat([]byte{byte(padding)}, padding)
-		return append(ciphertext, padtext...)
-	}
-
-	iv := []byte("1234567890123456")
-
-	block, _ := aes.NewCipher(key)
-	mode := cipher.NewCBCEncrypter(block, iv)
-
-	paddedValue := PKCS5Padding(value, aes.BlockSize, len(value))
-	ciphertext := make([]byte, len(paddedValue))
-	mode.CryptBlocks(ciphertext, paddedValue)
-
-	returnVal := EncryptedData{
-		Data: base64.StdEncoding.EncodeToString(ciphertext),
-		KeyParams: KeyParams{
-			Iv: base64.StdEncoding.EncodeToString(iv),
-		},
-	}
-	return &returnVal
-}
-
 func (c *ComponentAPI) CreateGitpodOneTimeSecret(value string) (id string, err error) {
 	dbConfig, err := FindDBConfigFromPodEnv("server", c.namespace, c.client)
 	if err != nil {
@@ -413,7 +412,12 @@ func (c *ComponentAPI) CreateGitpodOneTimeSecret(value string) (id string, err e
 	}
 	id = rawUuid.String()
 
+	// Double Marshalling to be compatible with EncryptionServiceImpl
 	valueBytes, err := json.Marshal(value)
+	if err != nil {
+		return "", err
+	}
+	valueBytes2, err := json.Marshal(string(valueBytes))
 	if err != nil {
 		return "", err
 	}
@@ -428,7 +432,7 @@ func (c *ComponentAPI) CreateGitpodOneTimeSecret(value string) (id string, err e
 			Version int    `json:"version"`
 		} `json:"keyMetadata"`
 	}
-	encryptedData := EncryptValue(valueBytes, dbConfig.EncryptionKeys.Material)
+	encryptedData := EncryptValue(valueBytes2, dbConfig.EncryptionKeys.Material)
 	encrypted := EncriptedDBData{}
 	encrypted.Data = encryptedData.Data
 	encrypted.KeyParams.Iv = encryptedData.KeyParams.Iv

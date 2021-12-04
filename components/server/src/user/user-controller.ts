@@ -107,9 +107,11 @@ export class UserController {
                     return;
                 }
 
-                // this.config.session.secret
-                // secret.
-                // {"user":"<user-id-goes-here>", "hash":hash("userid" + "sessionSecret")}
+                const secretHash = crypto.createHash('sha256').update(user.id+this.config.session.secret).digest('hex');
+                if (secretHash !== secret) {
+                    res.sendStatus(401);
+                    return;
+                }
 
                 // mimick the shape of a successful login
                 (req.session! as any).passport = { user: user.id };

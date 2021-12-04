@@ -6,6 +6,7 @@ package ide
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -60,13 +61,21 @@ func TestPythonExtWorkspace(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			// {"user":"<user-id-goes-here>", "hash":hash("userid" + "sessionSecret")}
-			secretKey, err := api.CreateGitpodOneTimeSecret(`"FOO"`)
+			serverConfig, err := integration.GetServerConfig(cfg.Namespace(), cfg.Client())
+			if err != nil {
+				t.Fatal(err)
+			}
+			userId, err := api.GetUserId(username)
+			if err != nil {
+				t.Fatal(err)
+			}
+			hash := sha256.Sum256([]byte(userId + serverConfig.Session.Secret))
+			secretKey, err := api.CreateGitpodOneTimeSecret(fmt.Sprintf("%x", hash))
 			if err != nil {
 				t.Fatal(err)
 			}
 
-			sessionCookie, err := api.GitpodSessionCookie(secretKey, integration.WithGitpodUser(username))
+			sessionCookie, err := api.GitpodSessionCookie(secretKey, username)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -119,17 +128,15 @@ func TestPythonExtWorkspace(t *testing.T) {
 					"--extensionTestsPath=./out/test/suite",
 				},
 			}, &resp)
-			t.Log(">>>>>>>>>>>>>>>>>> after exec")
+
 			if err != nil {
 				t.Fatal(err)
 			}
-			t.Log(">>>>>>>>>>>>>>>>>> no exec errors")
 
 			if resp.ExitCode != 0 {
 				t.Log("Ide integration stdout:\n", resp.Stdout)
 				t.Log("Ide integration stderr:\n", resp.Stderr)
 				t.Fatal("There was an error running ide test")
-
 			}
 
 			return ctx
