@@ -320,6 +320,9 @@ func (c *ComponentAPI) GitpodSessionCookie(secretKey string, user string) (*http
 	if err != nil {
 		return nil, err
 	}
+	if res == nil {
+		return nil, xerrors.Errorf("Server did not provide a session cookie")
+	}
 
 	return res, nil
 }
